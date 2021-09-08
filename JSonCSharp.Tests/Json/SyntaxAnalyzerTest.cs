@@ -125,6 +125,18 @@ namespace JSonCSharp.Json.Tests
             c["list"].Select(x => x.Value).Should().ContainInOrder(42, 43, 44);
         }
 
+        [DataTestMethod]
+        [DataRow("true", "{ or [ expected, but Value found.")]
+        [DataRow(@"{ ""key"",", ": expected, but Comma found.")]
+        [DataRow("{,", "String Value expected, but Comma found.")]
+        [DataRow("[0 0", "] expected, but Value found.")]
+        [DataRow("[ ,", "{, [ or Value (true, false, null, String, Number) expected, but Comma found.")]
+        public void InvalidSyntax_Throws(string source, string expectedMessage)
+        {
+            var sut = new SyntaxAnalyzer(source);
+            sut.Invoking(x => x.Parse()).Should().Throw<JsonException>().WithMessage(expectedMessage);
+        }
+
         [TestMethod]
         public void Location()
         {

@@ -94,13 +94,10 @@ namespace JsonCSharp.Json.Parsing
                 Symbol.OpenCurlyBracket => ParseObject(),
                 Symbol.OpenSquareBracket => ParseList(),
                 Symbol.Value => new JsonNode(la.LastStart, la.CurrentPosition(1), la.Value),
-                _ => throw Unexpected("{, [ or Value (true, false, null, String, Number")
+                _ => throw Unexpected("{, [ or Value (true, false, null, String, Number)")
             };
 
         private JsonException Unexpected(string expected) =>
-            Unexpected(expected, symbol.ToString());
-
-        private JsonException Unexpected(string expected, string found) =>
-            new JsonException($"{expected} expected, but {found} found.");
+            new JsonException($"{expected} expected, but {symbol} found.");
     }
 }
