@@ -1,7 +1,10 @@
 using FluentAssertions;
+using JsonCSharp.Json;
 using JsonCSharp.Json.Parsing;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using System;
 using System.Linq;
+using System.Linq.Expressions;
 
 namespace JSonCSharp.Json.Tests
 {
@@ -121,5 +124,68 @@ namespace JSonCSharp.Json.Tests
             c["list"].Kind.Should().Be(Kind.List);
             c["list"].Select(x => x.Value).Should().ContainInOrder(42, 43, 44);
         }
+
+        [TestMethod]
+        public void Location()
+        {
+            const string json = 
+@"{
+    'a': [
+            'aaa', 
+            'bbb', 
+            'ccc', 
+            { 'x': true}
+           ],
+    'b': 42,
+    'c': {
+            '1': 111, 
+            '2': '222', 
+            'list': [42, 43, 44]
+         },
+    'd':
+[]
+}";
+            var sut = new SyntaxAnalyzer(json.Replace('\'', '"'));  // Avoid "" escaping to preserve correct indexes in this editor
+            var root = sut.Parse();
+            AssertLocation(() => root, 0, 0, 15, 1);
+            AssertLocation(() => root["a"], 1, 9, 6, 12);
+            AssertLocation(() => root["b"], 7, 9, 7, 11);
+            AssertLocation(() => root["c"], 8, 9, 12, 10);
+            AssertLocation(() => root["d"], 14, 0, 14, 2);
+
+            var array = root["a"];
+            AssertLocation(() => array[0], 2, 12, 2, 17);
+            AssertLocation(() => array[1], 3, 12, 3, 17);
+            AssertLocation(() => array[2], 4, 12, 4, 17);
+            AssertLocation(() => array[3], 5, 12, 5, 24);
+
+            AssertLocation(() => array[3]["x"], 5, 19, 5, 23);
+        }
+
+
+        [TestMethod]
+        public void Location_EndOfLines()
+        {
+            const string json = "[0,\n1,\r2,\r\n3,\u20284,\u20295]";
+            var sut = new SyntaxAnalyzer(json.Replace('\'', '"'));  // Avoid "" escaping to preserve correct indexes in this editor
+            var root = sut.Parse();
+            AssertLocation(() => root, 0, 0, 5, 2);
+            AssertLocation(() => root[0], 0, 1, 0, 2);
+            AssertLocation(() => root[1], 1, 0, 1, 1);
+            AssertLocation(() => root[2], 2, 0, 2, 1);
+            AssertLocation(() => root[3], 3, 0, 3, 1);
+            AssertLocation(() => root[4], 4, 0, 4, 1);
+            AssertLocation(() => root[5], 5, 0, 5, 1);
+        }
+
+        private void AssertLocation(Expression<Func<JsonNode>> expression, int startLine, int startCharacter, int endLine, int endCharacter)
+        {
+            var node = expression.Compile()();
+            node.Start.Line.Should().Be(startLine, expression.ToString());
+            node.Start.Character.Should().Be(startCharacter, expression.ToString());
+            node.End.Line.Should().Be(endLine, expression.ToString());
+            node.End.Character.Should().Be(endCharacter, expression.ToString());
+        }
+
     }
 }

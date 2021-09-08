@@ -36,7 +36,7 @@ namespace JsonCSharp.Json.Parsing
 
         private JsonNode ParseObject()
         {
-            var ret = new JsonNode(Kind.Object);
+            var ret = new JsonNode(la.LastStart, Kind.Object);
             if (ReadNext() != Symbol.CloseCurlyBracket)  // Could be empty object {}
             {
                 ObjectKeyValue(ret);
@@ -46,6 +46,7 @@ namespace JsonCSharp.Json.Parsing
                     ObjectKeyValue(ret);
                 }
             }
+            ret.UpdateEnd(la.LastEnd);
             return ret;
         }
 
@@ -68,7 +69,7 @@ namespace JsonCSharp.Json.Parsing
 
         private JsonNode ParseList()
         {
-            var ret = new JsonNode(Kind.List);
+            var ret = new JsonNode(la.LastStart, Kind.List);
             if (ReadNext() != Symbol.CloseSquareBracket)    // Could be empty array []
             {
                 ret.Add(ParseValue());
@@ -82,6 +83,7 @@ namespace JsonCSharp.Json.Parsing
                     throw Unexpected("]");
                 }
             }
+            ret.UpdateEnd(la.LastEnd);
             return ret;
         }
 
@@ -91,7 +93,7 @@ namespace JsonCSharp.Json.Parsing
             {
                 Symbol.OpenCurlyBracket => ParseObject(),
                 Symbol.OpenSquareBracket => ParseList(),
-                Symbol.Value => new JsonNode(la.Value),
+                Symbol.Value => new JsonNode(la.LastStart, la.CurrentPosition(1), la.Value),
                 _ => throw Unexpected("{, [ or Value (true, false, null, String, Number")
             };
 

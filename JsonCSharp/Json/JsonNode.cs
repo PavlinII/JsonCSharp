@@ -13,6 +13,9 @@ namespace JsonCSharp.Json
         private readonly Dictionary<string, JsonNode> map;
         private readonly object value;
 
+        public LinePosition Start { get;  }
+        public LinePosition End { get; private set; }
+
         public int Count => Kind switch
         {
             Kind.Object => map.Count,
@@ -34,15 +37,18 @@ namespace JsonCSharp.Json
 
         public object Value => Kind == Kind.Value ? value : throw InvalidKind();
 
-        public JsonNode(object value)
+        public JsonNode(LinePosition start, LinePosition end, object value)
         {
             Kind = Kind.Value;
+            Start = start;
+            End = end;
             this.value = value;
         }
 
-        public JsonNode(Kind kind)
+        public JsonNode(LinePosition start, Kind kind)
         {
             Kind = kind;
+            Start = start;
             switch (kind)
             {
                 case Kind.List:
@@ -53,6 +59,18 @@ namespace JsonCSharp.Json
                     break;
                 default:
                     throw InvalidKind();
+            }
+        }
+
+        public void UpdateEnd(LinePosition end)
+        {
+            if (End == null)
+            {
+                End = end;
+            }
+            else
+            {
+                throw new InvalidOperationException("End position is already set");
             }
         }
 

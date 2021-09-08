@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text;
@@ -7,24 +8,51 @@ namespace JsonCSharp.Json.Parsing
 {
     public class LexicalAnalyzer
     {
-        private readonly string source;
+        private readonly List<string> lines = new List<string>();
+        private int line = 0;
         private int position = -1;
 
         public object Value { get; private set; }
-        private char CurrentChar => source[position];
+        public LinePosition LastStart { get; private set; }
+        public LinePosition LastEnd { get; private set; }
+        private char CurrentChar => lines[line][position];
+        private bool CanReadCurrentChar => line < lines.Count - 1 || (line == lines.Count - 1 && position < lines[line].Length);
+        private string AtLocationSuffix => $" at line {LastStart.Line + 1} position {LastStart.Character + 1}";
 
-        public LexicalAnalyzer(string source) =>
-            this.source = source;
+        public LexicalAnalyzer(string source)
+        {
+            var sb = new StringBuilder();
+            foreach (var c in source.Replace("\r\n", "\n"))
+            {
+                if (c == '\n'
+                    || c == '\r'
+                    || (char.GetUnicodeCategory(c) is var category && (category == UnicodeCategory.LineSeparator || category == UnicodeCategory.ParagraphSeparator)))
+                {
+                    lines.Add(sb.ToString());
+                    sb.Clear();
+                }
+                else
+                {
+                    sb.Append(c);
+                }
+            }
+            lines.Add(sb.ToString());
+        }
+
+        public LinePosition CurrentPosition(int increment) =>
+            new LinePosition(line, position + increment);
 
         public Symbol NextSymbol()
         {
             Value = null;
-            position++;
+            NextPosition(false);
             SkipWhiteSpace();
-            if (position >= source.Length)
+            if (!CanReadCurrentChar)
             {
                 return Symbol.EOI;
             }
+            LastStart = CurrentPosition(0);
+            LastEnd = CurrentPosition(1);   // ToDo: Verify that Roslyn needs to be one character behind the end, otherwise, we don't need LastEnd
             switch (CurrentChar)
             {
                 case '{':
@@ -68,23 +96,36 @@ namespace JsonCSharp.Json.Parsing
                     Value = false;
                     return Symbol.Value;
                 default:
-                    throw new JsonException($"Unexpected char '{CurrentChar}' at position {position}");
+                    throw new JsonException($"Unexpected character '{CurrentChar}'{AtLocationSuffix}");
             }
         }
 
-        private void CheckEOI()
+        private void NextPosition(bool checkEOI = true)
         {
-            if (position >= source.Length)
+            if (line < lines.Count && position < lines[line].Length - 1)
             {
-                throw new JsonException("Unexpected EOI at position " + position);
+                position++;
+            }
+            else
+            {
+                do
+                {
+                    line++;
+                } 
+                while (line < lines.Count && lines[line].Length == 0);
+                position = 0;
+                if (checkEOI && !CanReadCurrentChar)
+                {
+                    throw new JsonException("Unexpected EOI" + AtLocationSuffix);
+                }
             }
         }
 
         private void SkipWhiteSpace()
         {
-            while (position < source.Length && char.IsWhiteSpace(CurrentChar))
+            while (CanReadCurrentChar && char.IsWhiteSpace(CurrentChar))
             {
-                position++;
+                NextPosition(false);
             }
         }
 
@@ -92,9 +133,9 @@ namespace JsonCSharp.Json.Parsing
         {
             for (var i = 0; i < keyword.Length; i++)
             {
-                if (source[position + i] != keyword[i])
+                if (lines[line][position + i] != keyword[i])
                 {
-                    throw new JsonException($"Unexpected character '{source[position + i]}' at position {position + i}. Keyword '{keyword}' was expected.");
+                    throw new JsonException($"Unexpected character '{lines[line][position + i]}'{AtLocationSuffix}. Keyword '{keyword}' was expected.");
                 }
             }
             position += keyword.Length - 1;
@@ -103,13 +144,12 @@ namespace JsonCSharp.Json.Parsing
         private string ReadStringValue()
         {
             var sb = new StringBuilder();
-            position += 1;  // Skip quote
+            NextPosition();  // Skip quote
             while (CurrentChar != '"')
             {
                 if (CurrentChar == '\\')
                 {
-                    position++;
-                    CheckEOI();
+                    NextPosition();
                     switch (CurrentChar)
                     {
                         case '"':
@@ -137,11 +177,11 @@ namespace JsonCSharp.Json.Parsing
                             sb.Append('\t');
                             break;
                         case 'u':
-                            if (position + 4 >= source.Length)
+                            if (position + 4 >= lines[line].Length)
                             {
                                 throw new JsonException(@"Unexpected EOI, \uXXX escape expected.");
                             }
-                            sb.Append(char.ConvertFromUtf32(int.Parse(source.Substring(position + 1, 4), NumberStyles.HexNumber)));
+                            sb.Append(char.ConvertFromUtf32(int.Parse(lines[line].Substring(position + 1, 4), NumberStyles.HexNumber)));
                             position += 4;
                             break;
                         default:
@@ -152,8 +192,7 @@ namespace JsonCSharp.Json.Parsing
                 {
                     sb.Append(CurrentChar);
                 }
-                position++;
-                CheckEOI();
+                NextPosition();
             }
             return sb.ToString();
         }
@@ -162,7 +201,7 @@ namespace JsonCSharp.Json.Parsing
         {
             StringBuilder integer = new StringBuilder(), @decimal = null, exponent = null, current;
             current = integer;
-            while (position < source.Length)
+            while (CanReadCurrentChar)
             {
                 switch (CurrentChar)
                 {
@@ -173,7 +212,7 @@ namespace JsonCSharp.Json.Parsing
                         }
                         else
                         {
-                            throw new JsonException("Unexpected number format: Unexpected '-' at position " + position);
+                            throw new JsonException("Unexpected number format: Unexpected '-'" + AtLocationSuffix);
                         }
                         break;
                     case '0':
@@ -196,13 +235,13 @@ namespace JsonCSharp.Json.Parsing
                         }
                         else
                         {
-                            throw new JsonException("Unexpected number format: Unexpected '.' at position " + position);
+                            throw new JsonException("Unexpected number format: Unexpected '.'" + AtLocationSuffix);
                         }
                         break;
                     case '+':
                         if (current != exponent || current.Length != 0)
                         {
-                            throw new JsonException("Unexpected number format at position " + position);
+                            throw new JsonException("Unexpected number format" + AtLocationSuffix);
                         }
                         break;
                     case 'e':
@@ -211,10 +250,19 @@ namespace JsonCSharp.Json.Parsing
                         current = exponent;
                         break;
                     default:
-                        position--; //Remain on the last digit
+                        //Remain on the last digit
+                        if (position > 0)
+                        {
+                            position--;
+                        }
+                        else
+                        {
+                            line--;
+                            position = lines[line].Length - 1;
+                        }
                         return BuildResult();
                 }
-                position++;
+                NextPosition(false);
             }
             return BuildResult();
 
@@ -229,7 +277,7 @@ namespace JsonCSharp.Json.Parsing
                 }
                 else if (exponent.Length == 0 || exponent.ToString() == "-")
                 {
-                    throw new JsonException($"Unexpected number exponent format: {exponent} at position {position}");
+                    throw new JsonException($"Unexpected number exponent format: {exponent}{AtLocationSuffix}");
                 }
                 else
                 {
